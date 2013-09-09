@@ -1,4 +1,3 @@
-
 /*
 	JPKG : Jimmy's Read-Only compressed package format
 	Author : Dimitris Vlachos (DimitrisV22@gmail.com @ github.com/DimitrisVlachos)
@@ -237,28 +236,7 @@ static int32_t compress(file_streams::file_stream_if* source,file_streams::file_
     return Z_OK;
 }
  
-#if 0
-#include "filesystem.hpp"
-
-void test_pkg() {
-	file_system::file_system_if* fs = new file_system::file_system_pkg_reader_c<file_streams::file_stream_reader_c>();
-
-	fs->open("out.pkg");
-
-	file_system::file_system_entry_t* ent = fs->find_entry("pkg/hello.txt");
-
-	char* blk = new char[ent->size];
-	for (uint64_t i = 0;i < ent->size;++i) blk[i]='1';
-	fs->read_entry(ent,(uint8_t*)blk);
-	printf("%u %u\n",ent->addr,ent->size);
-	for (uint64_t i = 0;i < ent->size;++i)
-		printf("%c", blk[i]);
-
-	printf("\n");
-	delete[] blk;
-	while(1);
-}
-#endif
+ 
 
 static void intro() {
 	printf("\n\njpkg(Jimmy's package format)\n");
