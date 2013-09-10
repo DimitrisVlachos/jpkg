@@ -17,7 +17,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <time.h>
-#include "file_stream.hpp"	/*Grab it from my lib_bitstreams repo : https://github.com/DimitrisVlachos/lib_bitstreams */
+#include "file_stream.hpp" 
 
 struct pack_entry_t {
 	uint64_t addr;
@@ -28,6 +28,7 @@ static const std::string cs_signature = "JVFS0100";
 static const std::string cs_signature_v1 = "JVFS0101";	/*supports compressed headers*/
 
 static int32_t compress(file_streams::file_stream_if* source,file_streams::file_stream_if* dest,int32_t level);
+ 
 
 inline void encode(uint64_t data,file_streams::file_stream_if* wr) {
 	uint8_t tmp[8];
@@ -63,14 +64,14 @@ inline bool is_dir(const std::string& path) {
 	return true;
 }
 
-inline uint64_t calc_uncompressed_header_size(const std::vector<std::string>& entries) {	
+inline uint64_t calc_uncompressed_header_size(const std::vector<std::string>& entries,const std::string& sig = cs_signature) {	
 	uint64_t res;
 
 	//(sizeof addr + sizeof uncomp sz + null term str entries[i]) * n_entries
 	res = (8U + 8U + 1U) * entries.size();
 
 	//sizeof(sig)+null term + sizeof(hdr_count)
-	res += cs_signature.length() + 1U + 8U;
+	res += sig.length() + 1U + 8U;
 
 	for (uint32_t i = 0U,j = entries.size();i < j;++i)
 		res += entries[i].length();
@@ -200,6 +201,95 @@ bool pack(const std::string& package_name,const std::string& root_path,const int
 	delete write_stream;
 	return true;
 }
+ 
+bool pack_v1(const std::string& package_name,const std::string& root_path,const int32_t compression_level) {
+	std::vector<std::string> file_list;
+	std::vector<pack_entry_t> entry_list;
+	file_streams::file_stream_if* read_stream = 0;
+	file_streams::file_stream_if* write_stream = 0;
+	uint64_t uncomp_size = 0U;
+	pack_entry_t pack_ent;
+
+	printf("Constructing package v1 (compression method : %s)\n",(compression_level == Z_BEST_COMPRESSION) ? "best" : "default");
+
+	get_files(root_path,file_list);
+	if (file_list.empty()) {
+		printf("Pack : no files in %s\n",root_path.c_str());
+		return false;
+	}
+	entry_list.reserve(file_list.size());
+
+	write_stream = new file_streams::file_stream_writer_c(package_name.c_str());
+	if (!write_stream) {
+		printf("No write access on %s\n",package_name.c_str());
+		return false;
+	}
+
+	printf("Total entries found in %s : %llu\n",root_path.c_str(),file_list.size());
+
+	
+	write_stream->seek(0);
+
+	encode(cs_signature_v1,write_stream); //hdr
+	encode((uint64_t)0U,write_stream); //Dummy hdr offset
+
+	const uint64_t hdr_jmp_addr = write_stream->tell();
+
+	//Output
+	for (uint32_t i = 0U,j = file_list.size();i < j;++i) {
+		read_stream = new file_streams::file_stream_reader_c(file_list[i].c_str());
+		if (!read_stream) {
+			printf("Failed to open %s\n",file_list[i].c_str());
+			printf("Package construction failed\n");
+			delete write_stream;
+			return false;
+		}
+ 
+		pack_ent.addr =  write_stream->tell();
+		pack_ent.uncompressed_size = read_stream->size();
+		compress(read_stream,write_stream,compression_level);	
+		uncomp_size += pack_ent.uncompressed_size;
+		entry_list.push_back(pack_ent);
+		delete read_stream;
+	}
+ 
+	printf("Compressing header...\n");
+
+	//Update header
+	const uint64_t tmp = write_stream->tell();
+	write_stream->seek(hdr_jmp_addr);
+	encode(tmp,write_stream); //patch header offs
+	write_stream->seek(tmp);
+
+	//Hdr block size
+	const uint64_t uncomp_hdr_sz = calc_uncompressed_header_size(file_list,cs_signature_v1) - ( cs_signature_v1.length() + 1);
+	encode(uncomp_hdr_sz,write_stream);		//uncomp hdr sz
+
+	const uint64_t  prev_w_offs = write_stream->tell();
+
+	std::vector<uint8_t> hdr_data;
+	file_streams::file_stream_if* unc_hdr = new file_streams::file_mem_writer_c(&hdr_data,false);
+	file_streams::file_stream_if* unc_hdr_rd;
+	encode(file_list.size(),unc_hdr); //Entries
+ 
+	for (uint32_t i = 0U,j = file_list.size();i < j;++i) {
+		encode(entry_list[i].addr,unc_hdr); 
+		encode(entry_list[i].uncompressed_size,unc_hdr);  
+		encode(file_list[i],unc_hdr);
+	}
+
+	unc_hdr_rd = new file_streams::file_mem_reader_c(&hdr_data[0],hdr_data.size(),false);
+	compress(unc_hdr_rd,write_stream,compression_level);	
+
+	printf("Original entries size : %llu\n",uncomp_size);
+	printf("Final pacakge size : %llu (comp hdr : %llu / unc %llu)\n",write_stream->tell(),write_stream->tell() - prev_w_offs,unc_hdr->tell());
+
+	printf("All done\n" );
+	delete unc_hdr;
+	delete unc_hdr_rd;
+	delete write_stream;
+	return true;
+}
 
 static int32_t compress(file_streams::file_stream_if* source,file_streams::file_stream_if* dest,int32_t level) {
 	static const int32_t chunk_size = 16*1024;
@@ -275,4 +365,3 @@ int main(int argc,char** argv) {
 
 	return 0;
 }
-
