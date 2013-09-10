@@ -24,7 +24,7 @@ struct pack_entry_t {
 	uint64_t uncompressed_size;
 };
 
-static const std::string cs_signature = "JVFS0100";
+static const std::string cs_signature = "JVFS0100";	/*Non-compressed headers*/
 static const std::string cs_signature_v1 = "JVFS0101";	/*supports compressed headers*/
 
 static int32_t compress(file_streams::file_stream_if* source,file_streams::file_stream_if* dest,int32_t level);
