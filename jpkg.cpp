@@ -202,6 +202,9 @@ bool pack(const std::string& package_name,const std::string& root_path,const int
 	return true;
 }
  
+/*
+	Compressed header is placed at pkgsize~(pkgsize..hdr_size)
+*/
 bool pack_v1(const std::string& package_name,const std::string& root_path,const int32_t compression_level) {
 	std::vector<std::string> file_list;
 	std::vector<pack_entry_t> entry_list;
@@ -231,9 +234,10 @@ bool pack_v1(const std::string& package_name,const std::string& root_path,const 
 	write_stream->seek(0);
 
 	encode(cs_signature_v1,write_stream); //hdr
+	const uint64_t hdr_jmp_addr = write_stream->tell();
 	encode((uint64_t)0U,write_stream); //Dummy hdr offset
 
-	const uint64_t hdr_jmp_addr = write_stream->tell();
+	
 
 	//Output
 	for (uint32_t i = 0U,j = file_list.size();i < j;++i) {
@@ -264,7 +268,7 @@ bool pack_v1(const std::string& package_name,const std::string& root_path,const 
 	//Hdr block size
 	const uint64_t uncomp_hdr_sz = calc_uncompressed_header_size(file_list,cs_signature_v1) - ( cs_signature_v1.length() + 1);
 	encode(uncomp_hdr_sz,write_stream);		//uncomp hdr sz
-
+ 
 	const uint64_t  prev_w_offs = write_stream->tell();
 
 	std::vector<uint8_t> hdr_data;
@@ -326,9 +330,7 @@ static int32_t compress(file_streams::file_stream_if* source,file_streams::file_
     return Z_OK;
 }
  
- 
-
-static void intro() {
+static void welcome() {
 	printf("\n\njpkg(Jimmy's package format)\n");
 	printf("Author  : Dimitris Vlachos 2013\n");
 	printf("Email   : DimitrisV22@gmail.com\n");
@@ -337,31 +339,37 @@ static void intro() {
 
 static void help() {
 	printf("Usage instructions:\n");
-	printf("jpkg package_name.ext directory compression_level(best/default)\n");
+	printf("jpkg package_name.ext directory compress_headers(1/0) compression_level(best/default)\n");
 	printf("(Note:Directory recursion is always enabled!)\n");
 	printf("\nExample usage:\n");
-	printf("jpkg out.pkg filesystem best\n");
-	printf("jpkg out.pkg filesystem default\n\n");
+	printf("jpkg out.pkg filesystem 0 best\n");
+	printf("jpkg out.pkg filesystem 0 default\n\n");
+	printf("\nExample usage(With compressed headers):\n");
+	printf("jpkg out.pkg filesystem 1 best\n");
+	printf("jpkg out.pkg filesystem 1 default\n\n");
 }
 
 int main(int argc,char** argv) {
 	int32_t comp;
 
-	intro();
+	welcome();
 
-	if ((argc < 3) || (argc > 4)) {
+	if ((argc < 3) || (argc > 5)) {
 		help();
 		return 0;
 	}
 
 	comp = Z_DEFAULT_COMPRESSION;
-	if (argc == 4) {
-		std::string tmp = std::string(argv[3]);
+	if (argc == 5) {
+		std::string tmp = std::string(argv[4]);
 		if (tmp == std::string("best"))
 			comp = Z_BEST_COMPRESSION;
 	}
 
- 	pack(argv[1],argv[2],comp);
+	if (argv[3][0] == '1')
+		pack_v1(argv[1],argv[2],comp);
+	else
+ 		pack(argv[1],argv[2],comp);
 
 	return 0;
 }
